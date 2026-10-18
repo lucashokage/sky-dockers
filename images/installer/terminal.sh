@@ -90,6 +90,27 @@ shutdown() {
 }
 trap shutdown TERM INT
 
+run_user() {
+  say "${B}\$ $1${N}"
+  started=$(date +%s)
+  (
+    while sleep 15; do
+      say "${Y}» Sigue trabajando ($(( $(date +%s) - started )) s)...${N}"
+    done
+  ) &
+  beat=$!
+  eval "$1"
+  code=$?
+  kill "$beat" 2>/dev/null
+  wait "$beat" 2>/dev/null
+  took=$(( $(date +%s) - started ))
+  if [ "$code" -ne 0 ]; then
+    say "${R}» Terminó con error (código $code, ${took} s).${N}"
+  elif [ "$took" -ge 3 ]; then
+    say "${G}» Listo (${took} s).${N}"
+  fi
+}
+
 run_step() {
   say "${Y}» $1${N}"
   eval "$1"
@@ -124,6 +145,6 @@ while true; do
     "app reiniciar"|"app restart") app_stop; app_start ;;
     "app estado"|"app status") app_status ;;
     ">"*) printf '%s\n' "${line#>}" | sed 's/^ //' >&3 ;;
-    *) eval "$line" ;;
+    *) run_user "$line" ;;
   esac
 done
