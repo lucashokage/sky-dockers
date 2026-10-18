@@ -1,0 +1,82 @@
+#!/bin/sh
+set -e
+BASE=/home/container
+CONF="$BASE/.sky-web"
+ROOT="${WEB_ROOT:-$BASE/public}"
+PORT="${SERVER_PORT:-8080}"
+
+mkdir -p "$CONF/tmp" "$CONF/logs" "$ROOT"
+
+if [ ! -f "$ROOT/index.php" ] && [ ! -f "$ROOT/index.html" ]; then
+  printf '%s\n' '<?php echo "<h1>Sky web funcionando</h1><p>PHP " . PHP_VERSION . "</p>";' > "$ROOT/index.php"
+fi
+
+PHPFPM=$(ls /usr/sbin/php-fpm* | head -n 1)
+PHPINI=$(ls /etc/php/*/fpm/php.ini | head -n 1)
+
+cat > "$CONF/php-fpm.conf" <<CONFIG
+[global]
+pid = $CONF/tmp/php-fpm.pid
+error_log = $CONF/logs/php-fpm.log
+daemonize = no
+
+[www]
+listen = $CONF/tmp/php-fpm.sock
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+clear_env = no
+CONFIG
+
+if [ ! -f "$CONF/nginx.conf" ]; then
+  cat > "$CONF/nginx.conf" <<'CONFIG'
+worker_processes auto;
+pid __CONF__/tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  access_log /dev/stdout;
+  sendfile on;
+  client_max_body_size 100m;
+  client_body_temp_path __CONF__/tmp/body;
+  proxy_temp_path __CONF__/tmp/proxy;
+  fastcgi_temp_path __CONF__/tmp/fastcgi;
+  uwsgi_temp_path __CONF__/tmp/uwsgi;
+  scgi_temp_path __CONF__/tmp/scgi;
+
+  server {
+    listen __PORT__;
+    root __ROOT__;
+    index index.php index.html;
+
+    location / {
+      try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+      include /etc/nginx/fastcgi_params;
+      fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+      fastcgi_pass unix:__CONF__/tmp/php-fpm.sock;
+    }
+  }
+}
+CONFIG
+  sed -i "s#__CONF__#$CONF#g; s#__ROOT__#$ROOT#g" "$CONF/nginx.conf"
+fi
+sed -i "s#listen [0-9_A-Z]*;#listen $PORT;#" "$CONF/nginx.conf"
+sed -i "s#__PORT__#$PORT#" "$CONF/nginx.conf"
+
+"$PHPFPM" -F -y "$CONF/php-fpm.conf" -c "$PHPINI" &
+FPM_PID=$!
+trap 'kill $FPM_PID 2>/dev/null' EXIT INT TERM
+
+echo "Sky web: http://0.0.0.0:$PORT  (carpeta: $ROOT, config: $CONF/nginx.conf)"
+nginx -e /dev/stderr -c "$CONF/nginx.conf" -g 'daemon off;'
