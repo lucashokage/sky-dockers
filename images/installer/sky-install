@@ -1,0 +1,24 @@
+#!/bin/bash
+DIR="${SKY_DIR:-/mnt/server}"
+mkdir -p "$DIR"
+cd "$DIR" || exit 1
+
+if [ -n "${GIT_URL}" ]; then
+  if [ -d .git ]; then
+    echo "Repositorio ya existe, actualizando..."
+    git pull --ff-only || true
+  elif [ -z "$(ls -A . 2>/dev/null | grep -v '^\.terminal\.sh$')" ]; then
+    echo "Clonando ${GIT_URL}..."
+    if [ -n "${GIT_BRANCH}" ]; then
+      git clone --branch "${GIT_BRANCH}" "${GIT_URL}" .
+    else
+      git clone "${GIT_URL}" .
+    fi
+  else
+    echo "La carpeta no está vacía, no se clona el repositorio."
+  fi
+fi
+
+cp /usr/local/share/sky/terminal.sh "$DIR/.terminal.sh" || exit 1
+chmod +x "$DIR/.terminal.sh"
+echo "Instalación terminada."
